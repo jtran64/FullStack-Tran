@@ -281,8 +281,9 @@ class MyAPI extends API
     protected function find_user()
     {
 		if ($this->method == 'GET') {
-            $users = $this->mh->query($this->request);
-            return $users;
+           		 $users = $this->mh->query($this->request);
+            		return $users;
+		}
     }
     
     /**
