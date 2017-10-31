@@ -136,6 +136,7 @@ class MyAPI extends API
         $this->mh = new mongoHelper($this->mdb);
         $this->primary_key = 'uid';
 		$this->mh->setDbcoll('users');
+		$this->temparray = [];
     }
 
     private function fix_user($user){
@@ -177,6 +178,19 @@ class MyAPI extends API
             return $result;
         }
      }
+	 
+	 private function flatten_array($array){
+        foreach($array as $key => $value){
+            //If $value is an array.
+            if(is_array($value)){
+                //We need to loop through it.
+                $this->flatten_array($value);
+            } else{
+                //It is not an array, so print it out.
+                $this->temparray[$key] = $value;
+            }
+        }
+    }
 	 
 	 /**
      *  @name: add_user
@@ -226,7 +240,7 @@ class MyAPI extends API
     protected function update_user()
     {
 		$this->logger->do_log($this->request,"data passed to update");
-		$result = $this->mh->update(["_id"=>$this->request[_id]], [some data]);
+		$result = $this->mh->update(["_id"=>$this->request[_id]]);
 		return $result;
     }
 
@@ -242,26 +256,29 @@ class MyAPI extends API
      */
     protected function delete_user()
     {
+		$this->logger->do_log($this->request,"data");
 		if ($this->method == "DELETE"){
-			$users = $this->mh->query(["_id"=>$this->request[_id]]);
-			if(count($users) == 1)
-				$users = (array) $users[0];
-			else{
-				foreach($users as $user) {
-					$this->logger->do_log($user,"user");
-					$user = (array) $user;
-					
+			$users = array();
+            if(count($this->request) > 0){               
+				if(count($this->request) == 1){
+					$users = $this->mh->query(["_id"=>$this->request[_id]]);
+					$users = (array) $users[0];
 				}
-			}	 
-
-			//$this->logger->do_log($users,"data passed to delete");
-			$result = $this->mh->delete([$users]);
-			
-            // if(count($this->request) > 0){
-                // $result = $this->mh->delete([$this->request]);
-            // }else{
-                // $result = $this->mh->delete();
-            // }
+				else{
+					$count = 0;
+					foreach($this->request as $id) {
+						$users[$count] = $this->mh->query(["_id"=>$id]);
+						$users[$count] = (array) $users[$count];
+						$count++; 
+					}					
+				}
+				$users = $this->mh->query(["_id"=>$this->request[_id]]);
+				$this->logger->do_log($users,"data passed to delete");
+				$result = $this->mh->delete([$users]);
+            }
+			else{
+                $result = $this->mh->delete();
+            }
 			
             return $result;
 		}
@@ -280,12 +297,18 @@ class MyAPI extends API
      */
     protected function find_user()
     {
-		if ($this->method == 'GET') {
-           		 $users = $this->mh->query($this->request);
-            		return $users;
-		}
+		$newstuff = [];
+        foreach($this->request as $key => $val){
+            $newstuff[$key] = $this->clean_entry($val);
+        }
+        return $this->mh->query($newstuff);
+        //return ["request"=>$newstuff,"method"=>$this->method];
     }
     
+	private function clean_entry($entry){
+        return stripslashes(strip_tags(urldecode($entry)));
+    }
+	
     /**
      *  @name: random_user:
      *  @description: retreives a random user(s) from the randomuser api
@@ -301,23 +324,28 @@ class MyAPI extends API
         $this->mh->setDbcoll('users');
         $this->mh->delete();
         $results = [];
-        if ($this->method == "GET"){
-            if($this->request['size']){
+        if ($this->method == "GET") {
+            if ($this->request['size']) {
                 $size=$this->request['size'];
-            }else{
+            } else {
                 $size=100;
             }
+
             $data = file_get_contents("https://randomuser.me/api/?results={$size}&nat=us&exc=id");
-            if($data){
-                $data = json_decode($data,true);
-                foreach($data['results'] as $user){
-                    $max_id = $this->mh->get_max_id($this->mdb,$this->mh->collection ,'_id');
-                    $this->logger->do_log($max_id,"Max ID:");
+
+            if ($data) {
+                $data = json_decode($data, true);
+
+                foreach ($data['results'] as $user) {
+                    $this->temparray = [];
+                    $max_id = $this->mh->get_max_id($this->mdb, $this->mh->collection, '_id');
+                    $this->logger->do_log($max_id, "Max ID:");
                     $user['_id'] = $max_id;
-                    $results[] = $this->mh->insert([$user]);
-                }   
+                    $this->flatten_array($user);
+                    $this->logger->do_log($user, "flatten");
+                    $results[] = $this->mh->insert([$this->temparray]);
+                }
             }
-            
         }
         return $results;
     }
